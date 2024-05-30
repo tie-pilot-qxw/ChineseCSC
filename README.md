@@ -1,5 +1,12 @@
 # Rethinking Masked Language Modeling for Chinese Spelling Correction
 
+This is for my NLP homework which tried to reproduce the original repo's result and test it on a new task and make some improvement.
+
+The following is the original readme.
+
+-----
+
+
 This is the official repo for the ACL 2023 paper [Rethinking Masked Language Modeling for Chinese Spelling Correction](https://aclanthology.org/2023.acl-long.600.pdf); AAAI 2024 paper [Chinese Spelling Correction as Rephraing Language Model](https://arxiv.org/pdf/2308.08796.pdf).
 
 
