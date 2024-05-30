@@ -14,6 +14,7 @@ from tqdm.auto import tqdm, trange
 from transformers import AutoTokenizer
 from accelerate import Accelerator
 from autocsc import *
+from peft import *
 
 
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
@@ -355,6 +356,28 @@ def mask_tokens_only_neg(inputs, labels, tokenizer, noise_probability=0.2):
 
     return inputs
 
+def get_output(model, src_ids, trg_ids, attention_mask, num_labels):
+    
+    softmax = nn.Softmax(-1)
+    labels = trg_ids.clone()
+    labels[(src_ids == trg_ids)] = -100
+
+    outputs = model(
+        input_ids=src_ids,
+        attention_mask=attention_mask,
+        labels=labels
+    )
+
+
+    loss = outputs.loss
+
+    
+    _, predict_ids = torch.max(outputs.logits, -1)
+
+    return {
+        "loss": loss,
+        "predict_ids": predict_ids,
+    }
 
 def main():
     parser = argparse.ArgumentParser()
@@ -398,7 +421,7 @@ def main():
                         help="Initial learning rate for Adam.")
     parser.add_argument("--num_train_epochs", type=float, default=1000.0,
                         help="Total number of training epochs to perform.")
-    parser.add_argument("--max_train_steps", type=int, default=1000,
+    parser.add_argument("--max_train_steps", type=int, default=None,
                         help="Total number of training steps to perform. If provided, overrides training epochs.")
     parser.add_argument("--weight_decay", type=float, default=0.,
                         help="L2 weight decay for training.")
@@ -427,6 +450,14 @@ def main():
         "mdcspell": AutoCSCMDCSpell,
         "relm": AutoCSCReLM,
     }
+
+    peft_config = LoraConfig(
+        task_type=TaskType.TOKEN_CLS,
+        inference_mode=False,
+        r=128,
+        lora_alpha=256,
+        lora_dropout=0.1
+    )
 
     processor = DataProcessorForRephrasing() if relm else DataProcessorForTagging()
 
@@ -478,13 +509,20 @@ def main():
         num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
         if args.max_train_steps is None:
             args.max_train_steps = int(args.num_train_epochs * num_update_steps_per_epoch)
+            args.save_steps = num_update_steps_per_epoch
         else:
             args.num_train_epochs = math.ceil(args.max_train_steps / num_update_steps_per_epoch)
 
-        model = AutoCSC[args.model_type].from_pretrained(args.load_model_path,
-                                                         cache_dir=cache_dir)
+        #model = AutoCSC[args.model_type].from_pretrained(args.load_model_path, cache_dir=cache_dir)
+
+        model = BertForMaskedLM.from_pretrained(args.load_model_path, cache_dir=cache_dir)
         if args.load_state_dict:
             model.load_state_dict(torch.load(args.load_state_dict))
+
+        num_labels = model.config.vocab_size
+        model = get_peft_model(model, peft_config)
+
+        
 
         no_decay = ["bias", "LayerNorm.bias", "LayerNorm.weight"]
         optimizer_grouped_parameters = [
@@ -544,9 +582,9 @@ def main():
                     if args.mft:
                         src_ids = mask_tokens_only_neg(src_ids, trg_ids, tokenizer, args.noise_probability)
 
-                outputs = model(src_ids=src_ids,
+                outputs = get_output(model=model,src_ids=src_ids,
                                 attention_mask=attention_mask,
-                                trg_ids=trg_ids)
+                                trg_ids=trg_ids, num_labels=num_labels)
                 loss = outputs["loss"]
 
                 if n_gpu > 1:
@@ -577,9 +615,9 @@ def main():
                         batch = tuple(t.to(device) for t in batch)
                         src_ids, attention_mask, trg_ids = batch[:3]
                         with torch.no_grad():
-                            outputs = model(src_ids=src_ids,
+                            outputs = get_output(model=model,src_ids=src_ids,
                                             attention_mask=attention_mask,
-                                            trg_ids=trg_ids)
+                                            trg_ids=trg_ids,num_labels=num_labels)
                             prd_ids = outputs["predict_ids"]
 
                         src_ids, trg_ids, prd_ids = accelerator.gather_for_metrics((src_ids, trg_ids, prd_ids))
@@ -622,14 +660,18 @@ def main():
                         "eval_fpr": fpr * 100,
                     }
                     if accelerator.is_local_main_process:
+
                         model_to_save = model.module if hasattr(model, "module") else model
-                        output_model_file = os.path.join(args.output_dir, "step-%s_f1-%.2f.bin" % (str(global_step), result["eval_f1"]))
-                        torch.save(model_to_save.state_dict(), output_model_file)
+                        output_model_file = os.path.join(args.output_dir, "step-%s" % (str(global_step)))
+
+                        model.save_pretrained(output_model_file)
+
+                        # torch.save(model_to_save.state_dict(), output_model_file)
                         best_result.append((result["eval_f1"], output_model_file))
                         best_result.sort(key=lambda x: x[0], reverse=True)
                         if len(best_result) > 3:
                             _, model_to_remove = best_result.pop()
-                            os.remove(model_to_remove)
+                            #os.remove(model_to_remove)
 
                         output_eval_file = os.path.join(args.output_dir, "eval_results.txt")
                         with open(output_eval_file, "a") as writer:
@@ -653,14 +695,26 @@ def main():
         accelerator = Accelerator(cpu=args.no_cuda, mixed_precision="fp16" if args.fp16 else "no")
         device = accelerator.device
 
-        model = AutoCSC[args.model_type].from_pretrained(args.load_model_path,
-                                                         state_dict=torch.load(args.load_state_dict),
-                                                         cache_dir=cache_dir)
+        # model = AutoCSC[args.model_type].from_pretrained(args.load_model_path,
+        #                                                  state_dict=torch.load(args.load_state_dict),
+        #                                                  cache_dir=cache_dir)
+
+        
+        model = BertForMaskedLM.from_pretrained(args.load_model_path, cache_dir=cache_dir)
+        model.load_state_dict(torch.load("./model/relm-m0.3.bin"))
+        num_labels = model.config.vocab_size
+        model = PeftModel.from_pretrained(model, args.load_state_dict, config=peft_config)
+
+        # model = get_peft_model(model, peft_config)
+        # #model.load_state_dict(torch.load(args.load_state_dict))
+        # model.load_adapter(args.load_state_dict,"adapter")
+        # model.set_adapter("adapter")
+
         model = accelerator.prepare(model)
 
         avg = 0
-        for cat in ["gam", "car", "nov", "enc", "new", "cot", "mec", "sig"]:
-            eval_examples = processor.get_test_examples(args.test_on_lemon, cat + ".txt")
+        for cat in ['sig']:#["test","gam", "car", "nov", "enc", "new", "cot", "mec", "sig", "ec_law", "ec_med", "ec_odw"]:
+            eval_examples = processor.get_test_examples(args.test_on_lemon, cat + "_test.txt")
             eval_features = processor.convert_examples_to_features(eval_examples, args.max_seq_length, tokenizer, False)
 
             all_input_ids = torch.tensor([f.src_ids for f in eval_features], dtype=torch.long)
@@ -684,9 +738,9 @@ def main():
                 batch = tuple(t.to(device) for t in batch)
                 src_ids, attention_mask, trg_ids = batch[:3]
                 with torch.no_grad():
-                    outputs = model(src_ids=src_ids,
+                    outputs = get_output(model = model,src_ids=src_ids,
                                     attention_mask=attention_mask,
-                                    trg_ids=trg_ids)
+                                    trg_ids=trg_ids,num_labels=num_labels)
                     prd_ids = outputs["predict_ids"]
 
                 src_ids, trg_ids, prd_ids = accelerator.gather_for_metrics((src_ids, trg_ids, prd_ids))

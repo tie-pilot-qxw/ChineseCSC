@@ -1,0 +1,43 @@
+--data_dir DATA_DIR   Directory to contain the input data for all tasks.
+  --train_on TRAIN_ON   Specify a training set.
+  --eval_on EVAL_ON     Specify a dev set.
+  --test_on_lemon TEST_ON_LEMON
+                        Specify the directory to LEMON.
+  --load_model_path LOAD_MODEL_PATH
+                        Pre-trained model path to load.
+  --model_type MODEL_TYPE
+                        Model architecture to load.
+  --cache_dir CACHE_DIR
+                        Directory to store the pre-trained language models downloaded from s3.
+  --output_dir OUTPUT_DIR
+                        Directory to output predictions and checkpoints.
+  --load_state_dict LOAD_STATE_DICT
+                        Trained model weights to load for evaluation if needed.
+  --do_train            Whether to run training.
+  --do_eval             Whether to evaluate on the dev set.
+  --use_slow_tokenizer  A slow tokenizer will be used if passed.
+  --do_lower_case       Set this flag if you are using an uncased model.
+  --max_seq_length MAX_SEQ_LENGTH
+                        Maximum total input sequence length after word-piece tokenization.
+  --train_batch_size TRAIN_BATCH_SIZE
+                        Total batch size for training.
+  --eval_batch_size EVAL_BATCH_SIZE
+                        Total batch size for evaluation.
+  --learning_rate LEARNING_RATE
+                        Initial learning rate for Adam.
+  --num_train_epochs NUM_TRAIN_EPOCHS
+                        Total number of training epochs to perform.
+  --max_train_steps MAX_TRAIN_STEPS
+                        Total number of training steps to perform. If provided, overrides training epochs.
+  --weight_decay WEIGHT_DECAY
+                        L2 weight decay for training.
+  --gradient_accumulation_steps GRADIENT_ACCUMULATION_STEPS
+                        Number of updates steps to accumulate before performing a backward pass.
+  --no_cuda             Whether not to use CUDA when available.
+  --fp16                Whether to use mixed precision.
+  --seed SEED           Random seed for initialization.
+  --save_steps SAVE_STEPS
+                        How many steps to save the checkpoint once.
+  --noise_probability NOISE_PROBABILITY
+                        Mask rate for masked-fine-tuning.
+  --mft                 Training with masked-fine-tuning.

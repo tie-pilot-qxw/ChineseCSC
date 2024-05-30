@@ -1,0 +1,14 @@
+/cache
+/__pycache__
+/.vscode
+/relm
+/finetune
+/model
+/moe
+/moe-mft
+/relm_new
+/tmp
+/lora_moe
+/lora_moe-mft
+/vanilla
+/vanilla-mft
